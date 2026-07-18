@@ -310,8 +310,16 @@ const ENTRIES={
     text:'Vashishtha, guru of the Solar line, teaches that a bow is not aimed with the eye but with stillness of mind. "The arrow was loosed long before the string was drawn."'},
   sarayu:{title:'The River Sarayu',
     text:'Ayodhya rests on the banks of the Sarayu. Her waters have carried the prayers of a thousand generations. The washermen say the river remembers every face that has looked into her.'},
+  exile_dharma:{title:'The Smile of Exile',
+    text:'Offered a kingdom at dawn and a forest by dusk, Rama bowed to both with the same smile. Dharma is not tested by what we are given — it is revealed by what we can give up without bitterness.'},
   temple_bell:{title:'The Temple Bell',
-    text:'A bell is rung not to wake the god, but to wake the one who rings it. Its sound clears the mind of all other sounds — for a moment, there is only now.'}
+    text:'A bell is rung not to wake the god, but to wake the one who rings it. Its sound clears the mind of all other sounds — for a moment, there is only now.'},
+  first_bow:{title:'The First Lesson of the Bow',
+    text:'"Stillness," said Vashishtha. "The archer who chases the target never strikes it. Become still, and the target comes to the arrow." When the mind stops swaying, so does the aim.'},
+  hardest_dharma:{title:'The Hardest Dharma',
+    text:'A kingdom offered, a kingdom taken away — in one sunrise. Rama neither argued nor grieved. "If keeping my father\'s word costs me a throne," he said, "then the throne was never mine to keep." Dharma is heaviest when it is carried smiling.'},
+  exile_road:{title:'The Road of Exile',
+    text:'Fourteen years. The citizens of Ayodhya lined the streets in silence and in tears. Sita walked beside him; Lakshmana one step behind. Three left the city — but the city\'s heart left with them.'}
 };
 
 /* ---------------- Dialogue data ---------------- */
@@ -406,6 +414,10 @@ function updatePlay(dt){
   /* room edges → transitions */
   if(P.x<20){ if(r.exits.left){ enterRoom(r.exits.left.room,r.exits.left.x); return; } P.x=20; }
   if(P.x>r.w-20){ if(r.exits.right){ enterRoom(r.exits.right.room,r.exits.right.x); return; } P.x=r.w-20; }
+  /* exile summons */
+  if(SAVE.flags.trained&&!SAVE.flags.exiled&&G.roomId==='palace_court'&&P.x<520){
+    startExileScene(); return;
+  }
   /* camera */
   const target=Math.max(0,Math.min(P.x-W/2,r.w-W));
   G.camX+=(target-G.camX)*Math.min(1,dt*8);
@@ -454,17 +466,82 @@ function startInteract(it){
   }
   SAVE.talked[n.id]=t+1; persist();
   if(n.guru&&!SAVE.flags.guruMet){ SAVE.flags.guruMet=1;
-    G.objective='Rest — the bow awaits (next chapter)'; }
+    G.objective='Speak again with the Guru — begin training'; }
+  else if(n.guru&&SAVE.flags.guruMet&&!SAVE.flags.trained){
+    G.dlg={npc:n,page:['Guru Vashishtha','Take the bow, Rama. Five targets. Remember — stillness first, arrow after. Move nothing but the breath.'],train:true}; }
 }
 function updateDialog(dt){
   const full=G.dlg.page[1];
   if(G.dlgChar<full.length){ G.dlgChar=Math.min(full.length,G.dlgChar+dt*46);
     if(tap('KeyA')||POINTER.tapped){G.dlgChar=full.length;} return; }
   if(tap('KeyA')||POINTER.tapped){
-    const grant=G.dlg.page[2];
+    const grant=G.dlg.page[2], wasTrain=G.dlg.train;
     if(grant&&grant.startsWith('entry:'))grantEntry(grant.slice(6));
-    G.mode='play'; G.dlg=null; Audio2.uiB();
+    G.dlg=null; Audio2.uiB();
+    if(wasTrain){ startTraining(); return; }
+    G.mode='play';
   }
+}
+/* ---------------- Archery training: stillness of mind ---------------- */
+function startTraining(){
+  G.train={hits:0,need:5,amp:60,sway:0,still:0,shotT:0,msg:'',msgT:0,arrow:null};
+  G.mode='train'; P.x=200; P.dir=1; Audio2.play('dusk');
+}
+function updateTrain(dt){
+  const T=G.train;
+  /* stillness: not touching movement keys shrinks the sway */
+  const moving=held('ArrowLeft')||held('ArrowRight');
+  T.still=moving?0:Math.min(3,T.still+dt);
+  T.amp=60-T.still*16;               /* 60 → 12 px sway */
+  T.sway=Math.sin(G.t*2.6)*T.amp;
+  if(T.msgT>0)T.msgT-=dt;
+  if(T.arrow){ T.arrow.x+=T.arrow.vx*dt;
+    if(T.arrow.x>T.arrow.tx){ /* resolve */
+      const off=Math.abs(T.arrow.off);
+      if(off<14){ T.hits++; Audio2.tone(880,.2,'square',.08,220); Audio2.noise(.06,.06,3000);
+        T.msg=['Center!','Steady hand!','The guru nods.','Like breathing.','Perfect stillness.'][T.hits-1]||'Hit!';
+      } else { T.msg=off<30?'So close — breathe, be still…':'The arrow chased. Let the target come.'; Audio2.uiB(); }
+      T.msgT=1.6; T.arrow=null;
+      if(T.hits>=T.need){ setTimeout(()=>finishTraining(),900); }
+    } }
+  else if(tap('KeyA')){ T.arrow={x:P.x+16,tx:470,vx:520,off:T.sway}; Audio2.tone(520,.1,'square',.06,-180); }
+  if(tap('Escape')||tap('KeyP')){ G.mode='play'; G.train=null; Audio2.play('ayodhya'); }
+}
+function finishTraining(){
+  if(SAVE.flags.trained)return;
+  SAVE.flags.trained=1; SAVE.dharma+=25; persist();
+  grantEntry('first_bow');
+  G.objective='Return to the palace — the King calls';
+  G.mode='play'; Audio2.play('ayodhya');
+  G.dlg={npc:{id:'guru'},page:['Guru Vashishtha','Enough. The bow knows you now. Go — a messenger came from the palace. Your father calls for you, Rama.']};
+  G.dlgChar=0; G.mode='dialog';
+}
+function drawTrain(){
+  const th=THEMES.train; drawSky(th); drawDecor(); drawGround(th);
+  drawHuman(px(260),GROUND,1,'#f2e0c0','#d8a878',0,{old:true});
+  drawHuman(px(P.x),P.y,1,'#3a58c8','#c89060',0,{crown:true,bow:true});
+  const T=G.train, tx=px(470), ty=GROUND-92;
+  /* target */
+  ctx.fillStyle='#f8f0e0';ctx.beginPath();ctx.arc(tx,ty,22,0,7);ctx.fill();
+  ctx.fillStyle='#e05555';ctx.beginPath();ctx.arc(tx,ty,14,0,7);ctx.fill();
+  ctx.fillStyle='#f8f0e0';ctx.beginPath();ctx.arc(tx,ty,6,0,7);ctx.fill();
+  R(tx-4,ty+22,8,70,'#6a4a2a');
+  /* aim marker sways vertically over target */
+  const ay=ty+T.sway;
+  ctx.strokeStyle='#f2c14e';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(tx,ay,26,0,7);ctx.stroke();
+  R(tx-30,ay,8,2,'#f2c14e'); R(tx+22,ay,8,2,'#f2c14e');
+  /* arrow in flight */
+  if(T.arrow){ R(px(T.arrow.x),ty+T.arrow.off-1,16,2,'#e8e0c8'); }
+  /* stillness meter */
+  ctx.textAlign='left'; ctx.font='bold 10px monospace'; ctx.fillStyle='#e8e0d0';
+  ctx.fillText('STILLNESS',24,52);
+  R(24,58,120,8,'rgba(255,255,255,.15)'); R(24,58,120*(T.still/3),8,'#8fd07a');
+  ctx.fillStyle='#f2c14e'; ctx.fillText('TARGETS  '+T.hits+' / '+T.need,24,84);
+  ctx.textAlign='center'; ctx.fillStyle='rgba(232,224,208,.8)'; ctx.font='10px monospace';
+  ctx.fillText('Stand still to steady the aim · A to loose · Esc to stop',W/2,H-14);
+  if(T.msgT>0){ ctx.fillStyle='#f2c14e'; ctx.font='bold 12px monospace';
+    ctx.fillText(T.msg,W/2,120); }
 }
 
 /* ---------------- Render helpers ---------------- */
@@ -603,6 +680,20 @@ function drawDialog(){
   if((G.dlgChar|0)>=p[1].length&&Math.sin(G.t*6)>0){
     ctx.fillStyle='#f2c14e'; ctx.textAlign='right'; ctx.fillText('A ▸',W-44,H-28); }
 }
+function drawCut(){
+  const p=G.cut.pages[G.cut.i];
+  miniFrame(30,H-104,W-60,86);
+  ctx.textAlign='left'; ctx.fillStyle='#f2c14e'; ctx.font='bold 11px monospace';
+  ctx.fillText(p[0],46,H-84);
+  ctx.fillStyle='#f2ecd8'; ctx.font='11px monospace';
+  const words=p[1].slice(0,G.dlgChar|0).split(' ');
+  let line='',ly=H-66;
+  for(const w2 of words){ if(ctx.measureText(line+w2).width>W-130){
+      ctx.fillText(line,46,ly); ly+=15; line=''; } line+=w2+' '; }
+  ctx.fillText(line,46,ly);
+  if((G.dlgChar|0)>=p[1].length&&Math.sin(G.t*6)>0){
+    ctx.fillStyle='#f2c14e'; ctx.textAlign='right'; ctx.fillText('A ▸',W-44,H-28); }
+}
 function drawBook(){
   ctx.fillStyle='rgba(8,5,14,.92)'; ctx.fillRect(0,0,W,H);
   miniFrame(60,26,W-120,H-52);
@@ -650,6 +741,93 @@ function updatePause(){
   if(tap('KeyA')||tap('Enter')||tap('KeyP')||POINTER.tapped){ G.mode='play'; Audio2.resume(); }
 }
 
+/* ---------------- Cutscenes ---------------- */
+function startCutscene(pages,cb){ G.cut={pages,i:0,cb}; G.dlgChar=0; G.mode='cutscene'; }
+function updateCutscene(dt){
+  const p=G.cut.pages[G.cut.i], full=p[1];
+  if(G.dlgChar<full.length){ G.dlgChar=Math.min(full.length,G.dlgChar+dt*46);
+    if(tap('KeyA')||POINTER.tapped)G.dlgChar=full.length; return; }
+  if(tap('KeyA')||POINTER.tapped){
+    G.cut.i++; G.dlgChar=0; Audio2.uiB();
+    if(G.cut.i>=G.cut.pages.length){ const cb=G.cut.cb; G.cut=null; G.mode='play'; cb&&cb(); }
+  }
+}
+/* ---------------- Exile sequence ---------------- */
+function startExileScene(){
+  SAVE.flags.exiled=1; persist();
+  startCutscene([
+    ['Royal Messenger','Prince... the King is broken with grief. Queen Kaikeyi has claimed her two boons of old.'],
+    ['Royal Messenger','Bharata shall be crowned. And you... you are asked to dwell in the forest. Fourteen years.'],
+    ['Rama','Then my father\'s word shall not be broken by his son. Tell the King his Rama goes gladly.'],
+    ['Rama','Sita walks with me. Lakshmana will not stay. We leave before the sun climbs.']
+  ], beginExileWalk);
+}
+function beginExileWalk(){
+  grantEntry('exile_dharma');
+  enterRoom('market_street',60);
+  G.mode='exile'; G.exT=0;
+  G.followers=[{c:'#e0a030',off:30,female:true},{c:'#3a8a4a',off:58}];
+  /* citizens line the street */
+  NPCS=[];
+  const lines=['Come back to us, Prince!','May the forest be kind...','Ayodhya will keep your lamp lit.',
+    'Fourteen winters... we will count them.','Jai Shri Rama!','The city weeps today.'];
+  for(let i=0;i<8;i++){
+    NPCS.push({id:'cit'+i,x:180+i*120,y:GROUND,dir:-1,c:['#c05a3a','#7a5ab0','#5a7a5a','#b08a5a'][i%4],
+      wx:180+i*120, farewell:lines[i%lines.length], wave:Math.random()*6});
+  }
+  Audio2.play('dusk');
+  G.objective='Walk east. Do not look back.';
+}
+function updateExile(dt){
+  G.exT+=dt;
+  P.dir=1; P.x+=52*dt; P.walkT=G.t*9;
+  const r=G.room;
+  const target=Math.max(0,Math.min(P.x-W/2,r.w-W));
+  G.camX+=(target-G.camX)*Math.min(1,dt*8);
+  if(P.x>r.w-70) endChapter();
+}
+function endChapter(){
+  if(!SAVE.flags.ch1done){ SAVE.flags.ch1done=1; SAVE.chapter=2; persist();
+    if(Cloud.user)Cloud.submitScore(Cloud.user.uid,Cloud.user.displayName,
+      Cloud.user.photoURL,SAVE.dharma);
+  }
+  G.lb=null;
+  if(!Cloud.offline)Cloud.top(5).then(r=>{G.lb=r;});
+  G.mode='ending'; Audio2.stop();
+  Audio2.tone(293,.8,'triangle',.07); setTimeout(()=>Audio2.tone(440,1.2,'triangle',.06),300);
+}
+function updateEnding(){
+  if(tap('KeyA')||POINTER.tapped){
+    G.followers=null; enterRoom('palace_court',150); G.mode='play';
+    G.objective='Chapter 2 — the forest awaits (coming soon)';
+    Audio2.play('ayodhya');
+  }
+}
+function drawEnding(){
+  ctx.fillStyle='rgba(8,5,14,.94)'; ctx.fillRect(0,0,W,H);
+  miniFrame(90,30,W-180,H-60);
+  ctx.textAlign='center';
+  ctx.fillStyle='#f2c14e'; ctx.font='bold 18px monospace';
+  ctx.fillText('THUS BEGINS THE EXILE',W/2,66);
+  ctx.fillStyle='#e8e0d0'; ctx.font='10px monospace';
+  ctx.fillText('Fourteen years. One promise. Three walked out of the city',W/2,92);
+  ctx.fillText('— and the city\'s heart walked with them.',W/2,106);
+  ctx.fillStyle='#f2c14e'; ctx.font='bold 14px monospace';
+  ctx.fillText('CHAPTER 1 COMPLETE',W/2,138);
+  ctx.fillStyle='#8fd07a'; ctx.font='bold 12px monospace';
+  ctx.fillText('DHARMA  '+SAVE.dharma,W/2,160);
+  if(G.lb&&G.lb.length){
+    ctx.fillStyle='#f2c14e'; ctx.font='bold 10px monospace';
+    ctx.fillText('— PILGRIMS OF THE WORLD —',W/2,186);
+    G.lb.forEach((e,i)=>{ ctx.fillStyle=i===0?'#f2c14e':'#e8e0d0'; ctx.font='10px monospace';
+      ctx.fillText((i+1)+'.  '+(e.name||'Pilgrim')+'  ·  '+e.score,W/2,202+i*14); });
+  } else if(Cloud.offline){
+    ctx.fillStyle='#8f86a8'; ctx.font='9px monospace';
+    ctx.fillText('(connect Firebase to join the world leaderboard)',W/2,190);
+  }
+  ctx.fillStyle='#f2c14e'; ctx.font='bold 11px monospace';
+  if(Math.sin(G.t*4)>-.3)ctx.fillText('A · return to Ayodhya',W/2,H-48);
+}
 /* ---------------- Frame loop (fixed timestep) ---------------- */
 let acc=0,lastT=performance.now();
 function frame(now){
@@ -665,12 +843,17 @@ function frame(now){
     else if(G.mode==='dialog')updateDialog(DT);
     else if(G.mode==='book')updateBook();
     else if(G.mode==='pause')updatePause();
+    else if(G.mode==='train')updateTrain(DT);
+    else if(G.mode==='cutscene')updateCutscene(DT);
+    else if(G.mode==='exile')updateExile(DT);
+    else if(G.mode==='ending')updateEnding();
     if(G.toastT>0)G.toastT-=DT;
     clearEdges();
     acc-=DT;
   }
   /* render */
-  if(G.mode!=='gate'&&G.room){
+  if(G.mode==='train'&&G.train){ drawTrain(); }
+  else if(G.mode!=='gate'&&G.room){
     const th=THEMES[G.room.theme];
     drawSky(th); drawDecor(); drawGround(th);
     for(const b of BIRDS)drawBird(b);
@@ -679,10 +862,23 @@ function frame(now){
         {old:n.guru||n.id==='sita_hint',veena:n.music,hair:n.kid?'#3a2a10':undefined});
     drawHuman(px(P.x),P.y,P.dir,'#3a58c8','#c89060',
       (held('ArrowLeft')||held('ArrowRight'))&&P.onG?G.t*11:0,{crown:true,bow:true});
+    /* exile followers + farewells */
+    if(G.followers)G.followers.forEach(f=>{
+      drawHuman(px(P.x-f.off),GROUND,1,f.c,'#c89060',G.t*9,{hair:f.female?'#100a06':undefined});
+    });
+    if(G.mode==='exile')for(const n of NPCS){
+      if(Math.abs(n.x-P.x)<170&&n.farewell){
+        ctx.textAlign='center'; ctx.font='8px monospace';
+        ctx.fillStyle='rgba(242,236,216,'+(0.5+0.5*Math.sin(G.t*2+n.wave))+')';
+        ctx.fillText(n.farewell,px(n.x),GROUND-64-Math.sin(G.t*1.5+n.wave)*3);
+      }
+    }
     drawHUD();
     if(G.mode==='dialog')drawDialog();
+    if(G.mode==='cutscene'&&G.cut)drawCut();
     if(G.mode==='book')drawBook();
     if(G.mode==='pause')drawPauseScr();
+    if(G.mode==='ending')drawEnding();
   }
   requestAnimationFrame(frame);
 }
@@ -697,7 +893,10 @@ function startGame(user){
   const go=()=>{
     gate.style.display='none';
     const pos=SAVE.pos&&ROOMS[SAVE.pos.room]?SAVE.pos:{room:'palace_court',x:ROOMS.palace_court.spawn};
-    if(SAVE.flags.met5)G.objective=SAVE.flags.guruMet?'Rest — the bow awaits (next chapter)':'Find Guru Vashishtha — training grounds, far east';
+    if(SAVE.flags.ch1done)G.objective='Chapter 2 — the forest awaits (coming soon)';
+    else if(SAVE.flags.trained)G.objective='Return to the palace (far west)';
+    else if(SAVE.flags.guruMet)G.objective='Speak to the Guru again — the bow calls';
+    else if(SAVE.flags.met5)G.objective='Find Guru Vashishtha — training grounds, far east';
     enterRoom(pos.room,pos.x);
     G.mode='play';
     Audio2.unlock(); Audio2.play('ayodhya');
@@ -723,7 +922,7 @@ if(Cloud.offline){
 }
 requestAnimationFrame(frame);
 /* debug hook */
-window.__DBG={G,P,SAVE,enterRoom,Audio2,Cloud,startGame,get NPCS(){return NPCS}};
+window.__DBG={G,P,SAVE,enterRoom,Audio2,Cloud,startGame,startTraining,finishTraining,startExileScene,beginExileWalk,endChapter,get NPCS(){return NPCS}};
 </script>
 </body>
 </html>
